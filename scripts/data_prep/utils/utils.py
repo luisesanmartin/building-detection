@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+import h5py
 from pathlib import Path
 from shapely.geometry import shape, box
 from shapely.ops import transform as shapely_transform
@@ -8,7 +9,7 @@ from pyproj import Transformer
 import fiona
 import rasterio
 from rasterio.features import rasterize
-from rasterio.windows import transform as window_transform, bounds as window_bounds
+from rasterio.windows import Window, transform as window_transform, bounds as window_bounds
 
 
 def find_chip_pairs(tier_dir: Path) -> list[tuple[Path, Path, str, str]]:
@@ -111,3 +112,88 @@ def rasterize_chip(tif_path: Path, geojson_path: Path, output_path: Path):
                 block = np.zeros((window.height, window.width), dtype=np.uint8)
 
             dst.write(block, 1, window=window)
+
+
+def find_tif_mask_pairs(raw_dir: Path, processed_dir: Path, tier: str):
+
+    '''Return (tif_path, mask_path, city, chip_id) 
+    for all chips in a tier with both files present.'''
+
+    pairs = []
+    tier_processed = processed_dir / tier
+
+    if not tier_processed.exists():
+        return pairs
+
+    for city_dir in sorted(tier_processed.iterdir()):
+        if not city_dir.is_dir():
+            continue
+        for mask_path in sorted(city_dir.glob('*_mask.tif')):
+            chip_id = mask_path.stem.replace('_mask', '')
+            tif_path = raw_dir / tier / city_dir.name / chip_id / f'{chip_id}.tif'
+            if tif_path.exists():
+                pairs.append((tif_path, mask_path, city_dir.name, chip_id))
+
+    return pairs
+
+
+def tile_chip(
+    tif_path: Path,
+    mask_path: Path,
+    output_path: Path,
+    patch_size: int = 512,
+    stride: int = 512,
+    max_nodata_ratio: float = 0.5,
+    min_building_ratio: float = 0.0,
+) -> int:
+
+    '''Tile a (TIF, mask) pair into fixed-size patches and save to a single HDF5 file.
+
+    Patches are discarded if nodata pixels exceed max_nodata_ratio or building
+    pixels fall below min_building_ratio. Returns the number of patches saved.
+    '''
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    idx = 0
+
+    with rasterio.open(tif_path) as tif_src, rasterio.open(mask_path) as mask_src:
+        h, w = tif_src.height, tif_src.width
+
+        with h5py.File(output_path, 'w') as hf:
+            img_ds = hf.create_dataset(
+                'images',
+                shape=(0, patch_size, patch_size, 3),
+                maxshape=(None, patch_size, patch_size, 3),
+                dtype=np.uint8,
+                chunks=(1, patch_size, patch_size, 3),
+            )
+            mask_ds = hf.create_dataset(
+                'masks',
+                shape=(0, patch_size, patch_size),
+                maxshape=(None, patch_size, patch_size),
+                dtype=np.uint8,
+                chunks=(1, patch_size, patch_size),
+            )
+
+            for row in range(0, h - patch_size + 1, stride):
+                for col in range(0, w - patch_size + 1, stride):
+                    window = Window(col, row, patch_size, patch_size)
+
+                    rgba = tif_src.read([1, 2, 3, 4], window=window)
+                    nodata_ratio = (rgba[3] == 0).mean()
+                    if nodata_ratio > max_nodata_ratio:
+                        continue
+
+                    mask = mask_src.read(1, window=window)
+                    if mask.mean() < min_building_ratio or mask.sum() == 0:
+                        continue
+
+                    image = np.moveaxis(rgba[:3], 0, -1)  # (H, W, 3)
+
+                    img_ds.resize(idx + 1, axis=0)
+                    mask_ds.resize(idx + 1, axis=0)
+                    img_ds[idx] = image
+                    mask_ds[idx] = mask
+                    idx += 1
+
+    return idx
