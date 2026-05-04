@@ -1,3 +1,4 @@
 *.py[codz]
 .ipynb_checkpoints
 data/*
+results/metrics.csv
