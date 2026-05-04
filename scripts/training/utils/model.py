@@ -1,0 +1,11 @@
+import segmentation_models_pytorch as smp
+
+
+def build_model(encoder: str = 'resnet34', encoder_weights: str = 'imagenet'):
+    return smp.Unet(
+        encoder_name=encoder,
+        encoder_weights=encoder_weights,
+        in_channels=3,
+        classes=1,
+        activation=None,
+    )
