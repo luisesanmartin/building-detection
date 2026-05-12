@@ -2,3 +2,5 @@
 .ipynb_checkpoints
 data/*
 results/metrics.csv
+
+models/
