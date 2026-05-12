@@ -61,25 +61,37 @@ Sample predictions on held-out test chips (red overlay = predicted building):
 
 ## How to Run
 
-**1. Rasterize labels**
+**1. Download data**
 ```bash
-cd scripts/data_prep
+cd scripts/data_collection
+bash 1_get_test_data.sh
+bash 2_get_train_data.sh
+```
+
+**2. Decompress archives**
+```bash
+python 3_decompress.py
+```
+
+**3. Rasterize labels**
+```bash
+cd ../data_prep
 python 1_rasterize.py
 ```
 
-**2. Tile training chips into HDF5 patches**
+**4. Tile training chips into HDF5 patches**
 ```bash
 python 2_tile.py
 ```
 
-**3. Train**
+**5. Train**
 ```bash
 cd ../training
 python train.py
 ```
 Checkpoint saved to `models/best.pth`. Metrics saved to `results/metrics.csv`.
 
-**4. Run inference on test set**
+**6. Run inference on test set**
 ```bash
 cd ../inference
 python inference.py
