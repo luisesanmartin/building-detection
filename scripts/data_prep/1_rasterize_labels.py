@@ -15,7 +15,7 @@ from pathlib import Path
 from utils.utils import find_chip_pairs, rasterize_chip
 
 RAW_DIR = Path(__file__).parent / '../../data/raw'
-PROCESSED_DIR = Path(__file__).parent / '../../data/processed'
+PROCESSED_DIR = Path(__file__).parent / '../../data/processed/rasterized_labels'
 TIERS = ['train_tier_1', 'train_tier_2', 'test']
 
 if __name__ == '__main__':

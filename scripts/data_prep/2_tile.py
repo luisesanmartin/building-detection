@@ -13,9 +13,9 @@ Each file has datasets 'images' (N, 1024, 1024, 3) uint8 and 'masks' (N, 1024, 1
 from pathlib import Path
 from utils.utils import find_tif_mask_pairs, tile_chip
 
-RAW_DIR       = Path(__file__).parent / '../../data/raw'
-PROCESSED_DIR = Path(__file__).parent / '../../data/processed'
-PATCHES_DIR   = PROCESSED_DIR / 'patches'
+RAW_DIR        = Path(__file__).parent / '../../data/raw'
+LABELS_DIR     = Path(__file__).parent / '../../data/processed/rasterized_labels'
+PATCHES_DIR    = Path(__file__).parent / '../../data/processed/patches'
 TIERS         = ['train_tier_1', 'train_tier_2']
 
 PATCH_SIZE = 1024
@@ -24,7 +24,7 @@ MAX_NODATA_RATIO = 0.5
 
 if __name__ == '__main__':
     for tier in TIERS:
-        pairs = find_tif_mask_pairs(RAW_DIR, PROCESSED_DIR, tier)
+        pairs = find_tif_mask_pairs(RAW_DIR, LABELS_DIR, tier)
         print(f'\n{tier}: {len(pairs)} rasters')
 
         for tif_path, mask_path, city, chip_id in pairs:
