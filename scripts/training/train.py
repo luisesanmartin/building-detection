@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
 import csv
-import random
 from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
-from utils.loader import BuildingDataset, find_chip_pairs, get_transforms
+from utils.loader import BuildingDataset, get_transforms
 from utils.model import build_model
 from utils.utils import compute_loss, compute_iou, run_epoch
 
-RAW_DIR        = Path(__file__).parent / '../../data/raw'
-PROCESSED_DIR  = Path(__file__).parent / '../../data/processed'
+PATCHES_DIR    = Path(__file__).parent / '../../data/processed/patches'
 CHECKPOINT_DIR = Path(__file__).parent / '../../models'
 RESULTS_DIR    = Path(__file__).parent / '../../results'
 
 BATCH_SIZE  = 4
 NUM_WORKERS = 4
-VAL_SPLIT   = 0.2
 MAX_EPOCHS  = 200
 PATIENCE    = 10
 LR          = 1e-4
@@ -27,16 +24,13 @@ if __name__ == '__main__':
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     results_csv = RESULTS_DIR / 'metrics.csv'
 
-    all_pairs = find_chip_pairs(RAW_DIR, PROCESSED_DIR, 'train_tier_1')
-    random.shuffle(all_pairs)
-    n_val       = int(len(all_pairs) * VAL_SPLIT)
-    val_pairs   = all_pairs[:n_val]
-    train_pairs = all_pairs[n_val:]
+    train_files = [f for f in sorted((PATCHES_DIR / 'train_tier_1').rglob('*.h5')) if f.stat().st_size > 0]
+    val_files   = [f for f in sorted((PATCHES_DIR / 'train_tier_2').rglob('*.h5')) if f.stat().st_size > 0]
 
-    train_ds = BuildingDataset(train_pairs, transform=get_transforms(train=True))
-    val_ds   = BuildingDataset(val_pairs,   transform=get_transforms(train=False))
+    train_ds = BuildingDataset(train_files, transform=get_transforms(train=True))
+    val_ds   = BuildingDataset(val_files,   transform=get_transforms(train=False))
 
-    print(f'Train chips: {len(train_ds):,}  |  Val chips: {len(val_ds):,}  |  device: {DEVICE}')
+    print(f'Train patches: {len(train_ds):,}  |  Val patches: {len(val_ds):,}  |  device: {DEVICE}')
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=NUM_WORKERS, pin_memory=True)
     val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True)
