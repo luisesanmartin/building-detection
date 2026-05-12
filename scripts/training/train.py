@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 import csv
+import random
 from pathlib import Path
 import torch
-from torch.utils.data import DataLoader, random_split
-from utils.loader import BuildingDataset, TransformSubset, get_transforms
+from torch.utils.data import DataLoader
+from utils.loader import BuildingDataset, find_chip_pairs, get_transforms
 from utils.model import build_model
 from utils.utils import compute_loss, compute_iou, run_epoch
 
-PATCHES_DIR    = Path(__file__).parent / '../../data/processed/patches'
+RAW_DIR        = Path(__file__).parent / '../../data/raw'
+PROCESSED_DIR  = Path(__file__).parent / '../../data/processed'
 CHECKPOINT_DIR = Path(__file__).parent / '../../models'
 RESULTS_DIR    = Path(__file__).parent / '../../results'
 
-BATCH_SIZE  = 16
+BATCH_SIZE  = 4
 NUM_WORKERS = 4
 VAL_SPLIT   = 0.2
 MAX_EPOCHS  = 200
@@ -25,15 +27,16 @@ if __name__ == '__main__':
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     results_csv = RESULTS_DIR / 'metrics.csv'
 
-    full_ds  = BuildingDataset(PATCHES_DIR, tiers=['train_tier_1'])
-    n_val    = int(len(full_ds) * VAL_SPLIT)
-    n_train  = len(full_ds) - n_val
-    train_subset, val_subset = random_split(full_ds, [n_train, n_val])
+    all_pairs = find_chip_pairs(RAW_DIR, PROCESSED_DIR, 'train_tier_1')
+    random.shuffle(all_pairs)
+    n_val       = int(len(all_pairs) * VAL_SPLIT)
+    val_pairs   = all_pairs[:n_val]
+    train_pairs = all_pairs[n_val:]
 
-    train_ds = TransformSubset(train_subset, get_transforms(train=True))
-    val_ds   = TransformSubset(val_subset,   get_transforms(train=False))
+    train_ds = BuildingDataset(train_pairs, transform=get_transforms(train=True))
+    val_ds   = BuildingDataset(val_pairs,   transform=get_transforms(train=False))
 
-    print(f'Train patches: {len(train_ds):,}  |  Val patches: {len(val_ds):,}')
+    print(f'Train chips: {len(train_ds):,}  |  Val chips: {len(val_ds):,}  |  device: {DEVICE}')
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=NUM_WORKERS, pin_memory=True)
     val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True)
@@ -41,7 +44,7 @@ if __name__ == '__main__':
     model     = build_model().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
-    best_iou     = 0.0
+    best_iou              = 0.0
     epochs_no_improvement = 0
 
     with open(results_csv, 'w', newline='') as f:
@@ -58,7 +61,7 @@ if __name__ == '__main__':
             print(f'Epoch {epoch:03d} | train loss {train_loss:.4f} iou {train_iou:.4f} | val loss {val_loss:.4f} iou {val_iou:.4f}')
 
             if val_iou > best_iou:
-                best_iou = val_iou
+                best_iou              = val_iou
                 epochs_no_improvement = 0
                 torch.save(model.state_dict(), CHECKPOINT_DIR / 'best.pth')
                 print(f'  -> checkpoint saved (val iou {best_iou:.4f})')

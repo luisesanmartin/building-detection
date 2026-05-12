@@ -1,89 +1,71 @@
-import bisect
-import h5py
 import numpy as np
+import rasterio
 from pathlib import Path
-from torch.utils.data import Dataset, Subset
+from torch.utils.data import Dataset
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
 
+def find_chip_pairs(raw_dir: Path, processed_dir: Path, tier: str) -> list[tuple[Path, Path]]:
+    pairs = []
+    tier_processed = processed_dir / tier
+
+    if not tier_processed.exists():
+        return pairs
+
+    for city_dir in sorted(tier_processed.iterdir()):
+        if not city_dir.is_dir():
+            continue
+        for mask_path in sorted(city_dir.glob('*_mask.tif')):
+            chip_id  = mask_path.stem.replace('_mask', '')
+            tif_path = raw_dir / tier / city_dir.name / chip_id / f'{chip_id}.tif'
+            if tif_path.exists():
+                pairs.append((tif_path, mask_path))
+
+    return pairs
+
+
 class BuildingDataset(Dataset):
-    '''
-    PyTorch Dataset that streams patches from HDF5 files produced by 2_tile.py.
-
-    Builds a cumulative index at init (one file-open per .h5) so __getitem__
-    only opens the file it needs. No file handles are held open between calls.
-    '''
-
-    def __init__(self, patches_dir: Path, tiers: list[str], transform=None):
-        self.transform = transform
-        self._files = []       # h5 paths in order
-        self._cumulative = []  # cumulative[i] = total patches through file i
-
-        total = 0
-        for tier in tiers:
-            tier_dir = patches_dir / tier
-            if not tier_dir.exists():
-                continue
-            for h5_path in sorted(tier_dir.rglob('*.h5')):
-                with h5py.File(h5_path, 'r') as f:
-                    n = f['images'].shape[0]
-                if n == 0:
-                    continue
-                self._files.append(h5_path)
-                total += n
-                self._cumulative.append(total)
-
-    def __len__(self) -> int:
-        return self._cumulative[-1] if self._cumulative else 0
-
-    def __getitem__(self, idx: int):
-        file_idx = bisect.bisect_right(self._cumulative, idx)
-        local_idx = idx - (self._cumulative[file_idx - 1] if file_idx > 0 else 0)
-
-        with h5py.File(self._files[file_idx], 'r') as f:
-            image = f['images'][local_idx][:]  # (H, W, 3) uint8
-            mask  = f['masks'][local_idx][:]   # (H, W)    uint8
-
-        if self.transform:
-            out = self.transform(image=image, mask=mask)
-            image = out['image']
-            mask  = out['mask']
-
-        return image, mask
-
-
-class TransformSubset(Dataset):
-    '''Wraps a Subset to apply a different transform than the parent dataset.'''
-
-    def __init__(self, subset: Subset, transform):
-        self.subset    = subset
+    def __init__(self, pairs: list[tuple[Path, Path]], transform=None):
+        self.pairs     = pairs
         self.transform = transform
 
     def __len__(self) -> int:
-        return len(self.subset)
+        return len(self.pairs)
 
     def __getitem__(self, idx: int):
-        image, mask = self.subset[idx]
+        tif_path, mask_path = self.pairs[idx]
+
+        with rasterio.open(tif_path) as src:
+            rgba = src.read([1, 2, 3, 4])           # (4, H, W) uint8
+
+        image       = np.moveaxis(rgba[:3], 0, -1)  # (H, W, 3)
+        alpha       = rgba[3]                        # (H, W)
+        image[alpha == 0] = 0                        # zero out nodata pixels
+
+        with rasterio.open(mask_path) as src:
+            mask = src.read(1)                       # (H, W) uint8
+
         if self.transform:
             out   = self.transform(image=image, mask=mask)
             image = out['image']
             mask  = out['mask']
+
         return image, mask
 
 
 def get_transforms(train: bool = True):
     if train:
         return A.Compose([
-            
+
             # Geometric augmentations
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
-
+            
             # Photometric augmentation
             A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
-            
+
             # Normalize to ImageNet stats (pre-trained CNNs expect this)
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             

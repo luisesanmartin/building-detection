@@ -16,9 +16,8 @@ data/raw/
   test/           ← unlabelled chips for inference
 
 scripts/
-  data_prep/      1. Rasterize GeoJSON labels → mask TIFs
-                  2. Tile (TIF, mask) pairs → HDF5 patch files
-  training/       Train U-Net on patches, save best checkpoint
+  data_prep/      Rasterize GeoJSON labels → mask TIFs
+  training/       Train U-Net on full chips, save best checkpoint
   inference/      Run model on full test chips, save prediction TIFs
 
 data/predictions/ ← georeferenced binary masks (one per test chip)
@@ -28,10 +27,10 @@ data/predictions/ ← georeferenced binary masks (one per test chip)
 
 - **Architecture:** U-Net with ResNet34 encoder (pretrained on ImageNet)
 - **Loss:** BCE + Dice
-- **Input:** 512×512 RGB patches, normalized to ImageNet statistics
+- **Input:** 1024×1024 RGB chips, normalized to ImageNet statistics
 - **Augmentation:** horizontal/vertical flips, 90° rotations, color jitter
-- **Training split:** chip-level 80/20 split on tier 1 (prevents data leakage between patches from the same chip)
-- **Inference:** full 1024×1024 chips fed directly through the model (no tiling needed — model is fully convolutional)
+- **Training split:** chip-level 80/20 split on tier 1
+- **Inference:** full 1024×1024 chips fed directly through the model (fully convolutional)
 
 ## Training Curves
 
@@ -76,22 +75,17 @@ python 3_decompress.py
 **3. Rasterize labels**
 ```bash
 cd ../data_prep
-python 1_rasterize.py
+python 1_rasterize_labels.py
 ```
 
-**4. Tile training chips into HDF5 patches**
-```bash
-python 2_tile.py
-```
-
-**5. Train**
+**4. Train**
 ```bash
 cd ../training
 python train.py
 ```
 Checkpoint saved to `models/best.pth`. Metrics saved to `results/metrics.csv`.
 
-**6. Run inference on test set**
+**5. Run inference on test set**
 ```bash
 cd ../inference
 python inference.py
