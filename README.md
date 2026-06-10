@@ -6,7 +6,7 @@ Semantic segmentation pipeline to detect buildings in aerial imagery of African 
 
 The pipeline takes high-resolution aerial TIFs with paired GeoJSON building annotations and produces per-pixel building masks. It covers the full workflow from raw data to georeferenced predictions on unseen chips.
 
-**Best validation IoU: 0.8198** (epoch 30, early stopping)
+**Best validation IoU: 0.5741** (epoch 10, early stopping)
 
 ## Pipeline
 
@@ -30,7 +30,7 @@ data/predictions/ ← georeferenced binary masks (one per test chip)
 - **Loss:** BCE + Dice
 - **Input:** 1024×1024 RGB patches, normalized to ImageNet statistics
 - **Augmentation:** horizontal/vertical flips, 90° rotations, color jitter
-- **Training split:** raster-level 80/20 split on tier 1 (prevents data leakage between patches from the same city raster)
+- **Training split:** train on tier 1, validate on tier 2 (eliminates leakage between correlated patches from the same city raster)
 - **Patch edges:** zero-padded to match the nodata borders present on test chips
 - **Inference:** full 1024×1024 chips fed directly through the model (no tiling needed — model is fully convolutional)
 
@@ -38,13 +38,13 @@ data/predictions/ ← georeferenced binary masks (one per test chip)
 
 | Epoch | Train Loss | Train IoU | Val Loss | Val IoU |
 |-------|-----------|-----------|----------|---------|
-| 1     | 0.4788    | 0.7378    | 0.4262   | 0.7608  |
-| 10    | 0.3715    | 0.7851    | 0.3620   | 0.7899  |
-| 20    | 0.3307    | 0.8053    | 0.3310   | 0.8050  |
-| 30    | 0.3017    | 0.8203    | 0.3029   | **0.8198** |
-| 31    | 0.2996    | 0.8214    | 0.3034   | 0.8192  |
+| 1     | 0.5208    | 0.6965    | 0.7612   | 0.5633  |
+| 5     | 0.4262    | 0.7430    | 0.7753   | 0.5609  |
+| 10    | 0.4038    | 0.7543    | 0.7302   | **0.5741** |
+| 15    | 0.3889    | 0.7619    | 0.7639   | 0.5692  |
+| 20    | 0.3775    | 0.7674    | 0.7395   | 0.5716  |
 
-Training stopped at epoch 31 (run was interrupted; patience=10 not yet reached).
+Training stopped at epoch 20 via early stopping (patience=10, no improvement since epoch 10). Validation is on tier_2 (different cities than tier_1), a harder generalization test than the previous raster-level split within tier_1 — these numbers aren't directly comparable to earlier runs.
 
 ## Data Examples
 
