@@ -215,4 +215,6 @@ def tile_chip(
                     mask_ds[idx] = mask_pad
                     idx += 1
 
+            hf.attrs['n_patches'] = idx
+
     return idx

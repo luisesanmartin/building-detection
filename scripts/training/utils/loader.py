@@ -23,7 +23,7 @@ class BuildingDataset(Dataset):
         total = 0
         for h5_path in files:
             with h5py.File(h5_path, 'r') as f:
-                n = f['images'].shape[0]
+                n = int(f.attrs.get('n_patches', f['images'].shape[0]))
             if n == 0:
                 continue
             self._files.append(h5_path)
