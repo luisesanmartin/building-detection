@@ -22,7 +22,8 @@ DEVICE      = 'cuda' if torch.cuda.is_available() else 'cpu'
 if __name__ == '__main__':
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    results_csv = RESULTS_DIR / 'metrics.csv'
+    results_csv   = RESULTS_DIR / 'metrics.csv'
+    resume_ckpt   = CHECKPOINT_DIR / 'checkpoint.pth'
 
     train_files = [f for f in sorted((PATCHES_DIR / 'train_tier_1').rglob('*.h5')) if f.stat().st_size > 0]
     val_files   = [f for f in sorted((PATCHES_DIR / 'train_tier_2').rglob('*.h5')) if f.stat().st_size > 0]
@@ -30,7 +31,7 @@ if __name__ == '__main__':
     train_ds = BuildingDataset(train_files, transform=get_transforms(train=True))
     val_ds   = BuildingDataset(val_files,   transform=get_transforms(train=False))
 
-    print(f'Train patches: {len(train_ds):,}  |  Val patches: {len(val_ds):,}  |  device: {DEVICE}')
+    print(f'Train patches: {len(train_ds):,}  |  Val patches: {len(val_ds):,}  |  device: {DEVICE}', flush=True)
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=NUM_WORKERS, pin_memory=True)
     val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True)
@@ -38,29 +39,49 @@ if __name__ == '__main__':
     model     = build_model().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
+    start_epoch           = 1
     best_iou              = 0.0
     epochs_no_improvement = 0
 
-    with open(results_csv, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['epoch', 'train_loss', 'train_iou', 'val_loss', 'val_iou'])
+    if resume_ckpt.exists():
+        state = torch.load(resume_ckpt, map_location=DEVICE)
+        model.load_state_dict(state['model'])
+        optimizer.load_state_dict(state['optimizer'])
+        start_epoch           = state['epoch'] + 1
+        best_iou              = state['best_iou']
+        epochs_no_improvement = state['epochs_no_improvement']
+        print(f'Resuming from epoch {start_epoch} (best val iou {best_iou:.4f})', flush=True)
 
-        for epoch in range(1, MAX_EPOCHS + 1):
+    csv_mode = 'a' if resume_ckpt.exists() and results_csv.exists() else 'w'
+    with open(results_csv, csv_mode, newline='') as f:
+        writer = csv.writer(f)
+        if csv_mode == 'w':
+            writer.writerow(['epoch', 'train_loss', 'train_iou', 'val_loss', 'val_iou'])
+
+        for epoch in range(start_epoch, MAX_EPOCHS + 1):
             train_loss, train_iou = run_epoch(model, train_loader, optimizer, DEVICE, train=True)
             val_loss,   val_iou   = run_epoch(model, val_loader,   optimizer, DEVICE, train=False)
 
             writer.writerow([epoch, f'{train_loss:.4f}', f'{train_iou:.4f}', f'{val_loss:.4f}', f'{val_iou:.4f}'])
             f.flush()
 
-            print(f'Epoch {epoch:03d} | train loss {train_loss:.4f} iou {train_iou:.4f} | val loss {val_loss:.4f} iou {val_iou:.4f}')
+            print(f'Epoch {epoch:03d} | train loss {train_loss:.4f} iou {train_iou:.4f} | val loss {val_loss:.4f} iou {val_iou:.4f}', flush=True)
 
             if val_iou > best_iou:
                 best_iou              = val_iou
                 epochs_no_improvement = 0
                 torch.save(model.state_dict(), CHECKPOINT_DIR / 'best.pth')
-                print(f'  -> checkpoint saved (val iou {best_iou:.4f})')
+                print(f'  -> best model saved (val iou {best_iou:.4f})', flush=True)
             else:
                 epochs_no_improvement += 1
                 if epochs_no_improvement >= PATIENCE:
-                    print(f'Early stopping: no improvement for {PATIENCE} epochs')
+                    print(f'Early stopping: no improvement for {PATIENCE} epochs', flush=True)
                     break
+
+            torch.save({
+                'epoch':                epoch,
+                'model':                model.state_dict(),
+                'optimizer':            optimizer.state_dict(),
+                'best_iou':             best_iou,
+                'epochs_no_improvement': epochs_no_improvement,
+            }, resume_ckpt)
